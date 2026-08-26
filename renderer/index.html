@@ -1,0 +1,636 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; img-src 'self' data: blob:; style-src 'self'" />
+  <title>Exporter</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- ======================= Top toolbar ======================= -->
+  <header id="toolbar">
+    <div id="workflowLauncher" class="workflow-launcher">
+      <button id="btnWorkflows" class="tb-btn workflow-trigger" title="Choose a workflow" aria-haspopup="menu" aria-expanded="false">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 2h5v5H2zm7 0h5v5H9zM2 9h5v5H2zm7 0h5v5H9z"/></svg>
+        Workflows
+        <svg class="workflow-chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4z"/></svg>
+      </button>
+      <div id="workflowMenu" class="workflow-menu" role="menu" aria-label="Exporter workflows" aria-hidden="true">
+        <div class="workflow-menu-head">Choose a workflow</div>
+        <button id="workflowAtlas" class="workflow-item active" role="menuitem" data-workflow="atlas">
+          <span class="workflow-icon" aria-hidden="true"><svg viewBox="0 0 16 16"><path d="M2 2h5.2v5.2H2zm6.8 0H14v3.2H8.8zM2 8.8h3.2V14H2zm4.8-2H14V14H6.8z"/></svg></span>
+          <span><strong>Texture Atlas</strong><small>Pack and export static images</small></span>
+          <span class="workflow-current">Current</span>
+        </button>
+        <button id="workflowSpine" class="workflow-item" role="menuitem" data-workflow="spine">
+          <span class="workflow-icon" aria-hidden="true"><svg viewBox="0 0 16 16"><path d="M2 3.5A1.5 1.5 0 0 1 3.5 2h9A1.5 1.5 0 0 1 14 3.5v6A1.5 1.5 0 0 1 12.5 11h-9A1.5 1.5 0 0 1 2 9.5zm4.2 1.2v3.6l3.4-1.8zM4 12.5h8v1.2H4z"/></svg></span>
+          <span><strong>Spine Animation</strong><small>Inspect, verify, and export Spine assets</small></span>
+          <span class="workflow-current">Current</span>
+        </button>
+        <button id="workflowFont" class="workflow-item" role="menuitem" data-workflow="font">
+          <span class="workflow-icon" aria-hidden="true"><svg viewBox="0 0 16 16"><path d="M2 2h12v3h-1.5V3.5H9v9h2V14H5v-1.5h2v-9H3.5V5H2zM10.5 7h4v7h-1.4v-1.1h-1.2V14h-1.4zm1.4 1.4v3.1h1.2V8.4z"/></svg></span>
+          <span><strong>Bitmap Font</strong><small>Build runtime-ready bitmap fonts</small></span>
+          <span class="workflow-current">Current</span>
+        </button>
+      </div>
+    </div>
+    <span class="tb-sep"></span>
+    <button id="btnOpen" class="tb-btn" title="Open Atlas (Ctrl+O)">
+      <svg viewBox="0 0 16 16"><path d="M1.5 3.5A1.5 1.5 0 0 1 3 2h3l1.5 1.5H13A1.5 1.5 0 0 1 14.5 5v1H4.2a2 2 0 0 0-1.9 1.4L1.5 10z"/><path d="M1.6 11.6 3 7.9a1 1 0 0 1 .95-.65H15l-1.7 4.9a1 1 0 0 1-.95.65H2.5a1 1 0 0 1-.9-1.2z"/></svg>
+      Open Atlas
+    </button>
+    <button id="btnAdd" class="tb-btn" title="Add Images (Ctrl+I)">
+      <svg viewBox="0 0 16 16"><path d="M8 2.5a.75.75 0 0 1 .75.75v4h4a.75.75 0 0 1 0 1.5h-4v4a.75.75 0 0 1-1.5 0v-4h-4a.75.75 0 0 1 0-1.5h4v-4A.75.75 0 0 1 8 2.5z"/></svg>
+      Add Images
+    </button>
+    <button id="btnRepack" class="tb-btn" title="Repack Atlas">
+      <svg viewBox="0 0 16 16"><path d="M8 2a6 6 0 0 1 5.7 4.1l1.2-.4A.5.5 0 0 1 15.5 6l-.3 3-2.9-.9a.5.5 0 0 1 .1-.95l1.3.4A4.75 4.75 0 0 0 8 3.25 4.75 4.75 0 0 0 3.25 8H2A6 6 0 0 1 8 2zM8 14a6 6 0 0 1-5.7-4.1l-1.2.4A.5.5 0 0 1 .5 10l.3-3 2.9.9a.5.5 0 0 1-.1.95l-1.3-.4A4.75 4.75 0 0 0 8 12.75 4.75 4.75 0 0 0 12.75 8H14a6 6 0 0 1-6 6z"/></svg>
+      Repack
+    </button>
+    <button id="btnSettings" class="tb-btn" title="Packing Settings">
+      <svg viewBox="0 0 16 16"><path d="M2 4.5h8m2 0h2M2 8h2m2 0h8M2 11.5h6m2 0h4" stroke-width="1.5" stroke-linecap="round" fill="none"/><circle cx="11" cy="4.5" r="1.6"/><circle cx="5" cy="8" r="1.6"/><circle cx="9" cy="11.5" r="1.6"/></svg>
+      Settings
+    </button>
+    <span class="tb-sep"></span>
+    <button id="btnUndo" class="tb-btn icon-only" title="Undo (Ctrl+Z)" disabled>
+      <svg viewBox="0 0 16 16"><path d="M5.5 3 2 6.5 5.5 10V7.5H10a3 3 0 0 1 0 6H6v1.5h4a4.5 4.5 0 0 0 0-9H5.5z"/></svg>
+    </button>
+    <button id="btnRedo" class="tb-btn icon-only" title="Redo (Ctrl+Y)" disabled>
+      <svg viewBox="0 0 16 16"><path d="M10.5 3 14 6.5 10.5 10V7.5H6a3 3 0 0 0 0 6h4v1.5H6a4.5 4.5 0 0 1 0-9h4.5z"/></svg>
+    </button>
+    <span class="tb-sep"></span>
+    <button id="btnExport" class="tb-btn accent" title="Export atlas PNG + JSON (Ctrl+E)">
+      <svg viewBox="0 0 16 16"><path d="M8 1.5a.75.75 0 0 1 .75.75v6.44l2-2a.75.75 0 1 1 1.06 1.06L8 11.56 4.19 7.75a.75.75 0 0 1 1.06-1.06l2 2V2.25A.75.75 0 0 1 8 1.5z"/><path d="M2 11.5v1A1.5 1.5 0 0 0 3.5 14h9a1.5 1.5 0 0 0 1.5-1.5v-1h-1.5v1h-9v-1z"/></svg>
+      Export
+    </button>
+    <span id="dirtyDot" title="Unsaved changes"></span>
+    <span class="tb-spacer"></span>
+    <span id="appBrand">EXPORTER</span>
+  </header>
+
+  <!-- ======================= Main layout ======================= -->
+  <main id="layout">
+
+    <!-- Left panel: sprite library -->
+    <aside id="leftPanel">
+      <div class="panel-head">Sprite Library</div>
+      <div class="lib-tools">
+        <input id="spriteSearch" type="search" placeholder="Search sprites…" spellcheck="false" />
+        <select id="spriteSort" title="Sort order">
+          <option value="name-asc">Name ↑</option>
+          <option value="name-desc">Name ↓</option>
+          <option value="size-desc">Size ↓</option>
+          <option value="size-asc">Size ↑</option>
+        </select>
+      </div>
+      <div id="spriteCount" class="lib-count">0 sprites</div>
+      <div id="spriteList"></div>
+      <div class="lib-footer">
+        <button id="btnAddLeft" class="btn">+ Add Images</button>
+        <button id="btnDeleteLeft" class="btn danger">Delete Selected</button>
+      </div>
+    </aside>
+
+    <!-- Center panel: atlas preview -->
+    <section id="centerPanel">
+      <div id="canvasWrap">
+        <canvas id="previewCanvas"></canvas>
+        <div id="zoomControls">
+          <button id="btnZoomFit" class="zc-btn" title="Fit to screen (Ctrl+0)">Fit</button>
+          <button id="btnZoom100" class="zc-btn" title="Actual size (Ctrl+1)">1:1</button>
+          <button id="btnZoomOut" class="zc-btn" title="Zoom out (-)">−</button>
+          <span id="zoomLevel">100%</span>
+          <button id="btnZoomIn" class="zc-btn" title="Zoom in (+)">+</button>
+        </div>
+        <div id="emptyState" class="hidden">
+          <div class="empty-card">
+            <div class="empty-title">No atlas loaded</div>
+            <div class="empty-sub">Open an existing atlas (PNG + JSON) or start from loose images.</div>
+            <div class="empty-actions">
+              <button id="btnEmptyOpen" class="btn primary">Open Atlas…</button>
+              <button id="btnEmptyAdd" class="btn">Add Images…</button>
+            </div>
+            <div class="empty-hint">…or drop PNG files anywhere in this window</div>
+          </div>
+        </div>
+      </div>
+      <div id="statusBar">
+        <span id="atlasInfo">No atlas</span>
+        <span class="sb-spacer"></span>
+        <label class="sb-toggle"><input type="checkbox" id="chkOutlines" checked /> Outlines</label>
+        <label class="sb-toggle"><input type="checkbox" id="chkLabels" /> Labels</label>
+        <span class="sb-hint">wheel: zoom&ensp;•&ensp;drag: pan&ensp;•&ensp;click: select</span>
+      </div>
+    </section>
+
+    <!-- Right panel: inspector + packing settings -->
+    <aside id="rightPanel">
+      <div class="panel-head">Inspector</div>
+      <div id="inspEmpty" class="insp-placeholder">Select a sprite to inspect it.</div>
+
+      <div id="inspMulti" class="hidden">
+        <div class="multi-count">0 sprites selected</div>
+        <button id="inspBlurMultiBtn" class="btn wide" title="Generate blurred copies for reel spinning">
+          Create Blurred Versions…
+        </button>
+        <button id="inspDeleteMultiBtn" class="btn danger wide">Delete Selected</button>
+      </div>
+
+      <div id="inspSingle" class="hidden">
+        <div class="insp-preview-wrap"><canvas id="inspPreview"></canvas></div>
+        <div class="insp-name-row">
+          <input id="inspName" type="text" spellcheck="false" title="Sprite name (used as the JSON key)" />
+          <span id="inspStatus" class="badge">unchanged</span>
+        </div>
+        <div id="inspInfo" class="info-grid"></div>
+        <div class="insp-actions">
+          <button id="inspReplaceBtn" class="btn wide">Replace Image…</button>
+          <button id="inspBlurBtn" class="btn wide" title="Generate a blurred copy for reel spinning">
+            Create Blurred Version…
+          </button>
+          <div class="btn-row">
+            <button id="inspRenameBtn" class="btn">Rename (F2)</button>
+            <button id="inspDeleteBtn" class="btn danger">Delete</button>
+          </div>
+        </div>
+      </div>
+
+      <details id="settingsSection" open>
+        <summary>Packing Settings</summary>
+        <div class="settings-grid">
+          <label for="setPadding">Sprite padding</label>
+          <input id="setPadding" type="number" min="0" max="64" step="1" />
+          <label for="setBorder">Border padding</label>
+          <input id="setBorder" type="number" min="0" max="64" step="1" />
+          <label for="setExtrude">Extrude edges</label>
+          <input id="setExtrude" type="number" min="0" max="16" step="1" />
+          <label for="setMaxW">Max width</label>
+          <input id="setMaxW" type="number" min="16" max="16384" step="1" />
+          <label for="setMaxH">Max height</label>
+          <input id="setMaxH" type="number" min="16" max="16384" step="1" />
+        </div>
+        <div class="settings-checks">
+          <label><input id="setPOT" type="checkbox" /> Power-of-two size</label>
+          <label><input id="setSquare" type="checkbox" /> Force square</label>
+          <label><input id="setRotation" type="checkbox" /> Allow rotation (90°)</label>
+          <label><input id="setTrim" type="checkbox" /> Trim transparent pixels</label>
+        </div>
+      </details>
+    </aside>
+  </main>
+
+  <!-- ======================= Overlays ======================= -->
+  <div id="dropOverlay"><div class="drop-inner">Drop images to add them to the atlas</div></div>
+
+  <div id="modalRoot">
+    <div class="modal">
+      <div class="modal-title">Export Complete</div>
+      <div class="modal-grid">
+        <div class="k">PNG</div><div class="v mono" id="expPng"></div>
+        <div class="k">JSON</div><div class="v mono" id="expJson"></div>
+        <div class="k">TypeScript</div><div class="v mono" id="expTs"></div>
+        <div class="k">Atlas size</div><div class="v" id="expDims"></div>
+        <div class="k">Sprites</div><div class="v" id="expCount"></div>
+        <div class="k">PNG file size</div><div class="v" id="expSize"></div>
+        <div class="k">Space used</div><div class="v" id="expUsed"></div>
+      </div>
+      <div class="modal-actions">
+        <button id="btnOpenFolder" class="btn">Open Folder</button>
+        <button id="btnCloseModal" class="btn primary">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============== Blurred static symbol generation ============== -->
+  <div id="blurRoot">
+    <div class="blur-modal">
+      <div class="anim-head">
+        <div class="anim-title">Create Blurred Version <span class="dim">— static symbols for reel spinning</span></div>
+        <button id="blurClose" class="icon-btn" title="Close">✕</button>
+      </div>
+
+      <div class="blur-body">
+        <div class="blur-previews">
+          <div>
+            <div class="sub">Original (sharp)</div>
+            <canvas id="blurBefore" class="blur-canvas"></canvas>
+          </div>
+          <div>
+            <div class="sub">Blurred (spinning)</div>
+            <canvas id="blurAfter" class="blur-canvas"></canvas>
+          </div>
+        </div>
+
+        <div class="blur-side">
+          <div id="blurCount" class="dim small"></div>
+          <div id="blurTargets" class="chips"></div>
+
+          <div id="blurControls" class="blur-controls">
+            <label class="ctl">
+              <span>Style</span>
+              <select id="blurStyle" class="anim-input">
+                <option value="motion">Motion blur (reel movement)</option>
+                <option value="gaussian">Gaussian (uniform)</option>
+              </select>
+            </label>
+
+            <label class="ctl">
+              <span>Strength <b id="blurStrengthOut" class="mono"></b></span>
+              <input id="blurStrength" type="range" min="0" max="64" step="1" />
+            </label>
+
+            <div id="blurMotionRow" class="ctl">
+              <span>Direction</span>
+              <div class="radio-row">
+                <label><input type="radio" name="blurDirection" value="90" /> Vertical</label>
+                <label><input type="radio" name="blurDirection" value="0" /> Horizontal</label>
+              </div>
+              <input id="blurAngle" type="range" min="0" max="180" step="1" />
+              <span class="dim small">Angle <b id="blurAngleOut" class="mono"></b></span>
+            </div>
+
+            <label id="blurSoftnessRow" class="ctl">
+              <span>Softness <b id="blurSoftnessOut" class="mono"></b></span>
+              <input id="blurSoftness" type="range" min="0" max="100" step="5" />
+            </label>
+
+            <label class="chk">
+              <input id="blurExpand" type="checkbox" />
+              Expand canvas to fit blur <span class="dim">(keeps the falloff, stays centred)</span>
+            </label>
+          </div>
+
+          <div id="blurStats"></div>
+          <div id="blurWarnings"></div>
+
+          <div class="sub">Output names</div>
+          <div id="blurNames" class="blur-names"></div>
+          <div id="blurNameError"></div>
+          <button id="blurAutoFix" class="btn hidden">Auto-fix names</button>
+        </div>
+      </div>
+
+      <div class="anim-foot">
+        <button id="blurCancel" class="btn">Cancel</button>
+        <button id="blurApply" class="btn primary">Add Blurred Images</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============== Spine Animation workflow ============== -->
+  <div id="animRoot">
+    <div class="anim-modal">
+      <div class="anim-head">
+        <div class="anim-title">Spine Animation <span class="dim">— inspect, verify &amp; export for Stake Engine</span></div>
+        <button id="animClose" class="icon-btn" title="Close">✕</button>
+      </div>
+
+      <div class="anim-tabs">
+        <div id="animTab_source" class="anim-tab active"><span>1</span> Source</div>
+        <div id="animTab_target" class="anim-tab"><span>2</span> Target</div>
+        <div id="animTab_mapping" class="anim-tab"><span>3</span> Mapping</div>
+        <div id="animTab_preview" class="anim-tab"><span>4</span> Preview &amp; Verify</div>
+        <div id="animTab_export" class="anim-tab"><span>5</span> Export</div>
+      </div>
+
+      <div class="anim-body">
+        <!-- Step 1 -->
+        <section id="animStep_source" class="anim-step">
+          <div class="row-actions">
+            <button id="animPickFolder" class="btn primary">Select Animator Folder…</button>
+            <button id="animPickZip" class="btn">Select .zip Archive…</button>
+            <span id="animSourceStatus" class="dim small"></span>
+          </div>
+          <div id="animSourceCount" class="anim-count"></div>
+          <div id="animPackageTable" class="anim-scroll"></div>
+        </section>
+
+        <!-- Step 2 -->
+        <section id="animStep_target" class="anim-step hidden">
+          <div class="row-actions">
+            <button id="animPickProject" class="btn primary">Select Stake Engine Project…</button>
+            <button id="animPickReference" class="btn">Use Reference Asset Folder…</button>
+            <button id="animPickSample" class="btn">Use Bundled sample_output</button>
+          </div>
+          <div id="animTargetInfo" class="anim-block"></div>
+          <div class="sub">Spine compatibility</div>
+          <div id="animCompat" class="anim-scroll"></div>
+        </section>
+
+        <!-- Step 3 -->
+        <section id="animStep_mapping" class="anim-step hidden">
+          <div class="anim-settings">
+            <label>Atlas name <input id="animAtlasName" class="anim-input" /></label>
+            <label>Output folder <input id="animFolderName" class="anim-input" /></label>
+            <label>Registration scale <input id="animScale" class="anim-input narrow" type="number" step="0.5" /></label>
+            <label>Max W <input id="animMaxW" class="anim-input narrow" type="number" /></label>
+            <label>Max H <input id="animMaxH" class="anim-input narrow" type="number" /></label>
+            <label>Padding <input id="animPadding" class="anim-input narrow" type="number" /></label>
+            <label class="chk"><input id="animWebp" type="checkbox" checked /> .webp</label>
+            <label class="chk"><input id="animPng" type="checkbox" checked /> .png</label>
+            <label>Animation names
+              <select id="animNameMode" class="anim-input anim-name-mode" aria-describedby="animNameModeHint">
+                <option value="target">Target convention / custom mapping</option>
+                <option value="source">Keep imported Spine names</option>
+              </select>
+            </label>
+            <label>Texture quality <select id="animQuality" class="anim-input"></select></label>
+            <label>Alpha <select id="animAlphaMode" class="anim-input"></select></label>
+            <div id="animNameModeHint" class="dim small anim-settings-note"></div>
+            <div id="animQualityHint" class="dim small anim-settings-note"></div>
+          </div>
+          <div id="animMappingTable" class="anim-scroll"></div>
+        </section>
+
+        <!-- Step 4 -->
+        <section id="animStep_preview" class="anim-step hidden">
+          <div class="preview-grid">
+            <div>
+              <div class="sub">Shared atlas</div>
+              <div id="animAtlasPreview" class="atlas-holder"></div>
+              <div id="animAtlasInfo"></div>
+            </div>
+            <div>
+              <div class="sub">Runtime playback <span id="animPlayingLabel" class="dim mono"></span></div>
+              <canvas id="animSpineCanvas" width="380" height="300" class="spine-canvas"></canvas>
+              <div id="animSymbolList" class="symbol-list"></div>
+            </div>
+          </div>
+          <section class="draw-call-panel" aria-labelledby="animDrawCallTitle">
+            <div class="draw-call-head">
+              <div>
+                <div id="animDrawCallTitle" class="sub">Expected Pixi draw calls</div>
+                <div class="dim small">
+                  Isolated Spine asset analysis using the selected project's Pixi 8 batching rules.
+                  Counts cover the asset itself; surrounding game objects and effects can add calls.
+                </div>
+              </div>
+              <span id="animDrawCallRuntime" class="pill accent">Pixi 8 / Spine 4.2</span>
+            </div>
+            <div id="animDrawCallSummary" class="draw-call-summary" aria-live="polite"></div>
+            <div id="animDrawCallTable" class="anim-scroll"></div>
+            <details id="animDrawCallDetails" class="draw-call-details">
+              <summary>Why batches split</summary>
+              <div id="animDrawCallReasons" class="small"></div>
+            </details>
+          </section>
+          <div id="animChanges" class="anim-block"></div>
+          <div class="anim-settings">
+            <label class="chk">
+              <input id="animCleanTarget" type="checkbox" />
+              Remove stale files from the target folder
+            </label>
+            <div class="dim small anim-settings-note">
+              After writing the package, delete files in the output folder that this export did not
+              produce. Only <span class="mono">.png</span>, <span class="mono">.webp</span>,
+              <span class="mono">.atlas</span>, <span class="mono">.json</span> and
+              <span class="mono">.ts</span> files directly in that folder are ever considered —
+              subfolders, symlinks and anything else are left alone. You will see the exact list and
+              confirm before anything is deleted.
+            </div>
+          </div>
+        </section>
+
+        <!-- Step 5 -->
+        <section id="animStep_export" class="anim-step hidden">
+          <div id="animExportSummary" class="anim-block"></div>
+          <div id="animExportWarnings" class="anim-block"></div>
+          <div class="row-actions">
+            <button id="animOpenFolder" class="btn">Open Exported Folder</button>
+            <button id="animRegisterBtn" class="btn primary">Register in Project</button>
+          </div>
+          <div id="animRegisterNote" class="dim small"></div>
+        </section>
+      </div>
+
+      <div class="anim-foot">
+        <button id="animBack" class="btn">← Back</button>
+        <button id="animNext" class="btn primary">Next →</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============== Bitmap Font workflow ============== -->
+  <div id="fontRoot" aria-hidden="true">
+    <div class="font-modal" role="dialog" aria-modal="true" aria-labelledby="fontTitle">
+      <div class="font-head">
+        <div>
+          <div id="fontTitle" class="font-title">Bitmap Font</div>
+          <div class="dim small">Static PNG glyphs &rarr; Stake Engine Web SDK package</div>
+        </div>
+        <div class="font-head-actions">
+          <span id="fontDirty" class="font-dirty hidden">Unsaved changes</span>
+          <button id="fontClose" class="icon-btn" title="Close" aria-label="Close Bitmap Font workflow">&times;</button>
+        </div>
+      </div>
+
+      <div class="font-tabs" role="tablist">
+        <button id="fontTab_glyphs" class="font-tab active" role="tab"><span>1</span> Glyphs</button>
+        <button id="fontTab_layout" class="font-tab" role="tab"><span>2</span> Layout &amp; Metrics</button>
+        <button id="fontTab_preview" class="font-tab" role="tab"><span>3</span> Preview &amp; Verify</button>
+        <button id="fontTab_export" class="font-tab" role="tab"><span>4</span> Export &amp; Register</button>
+      </div>
+
+      <div class="font-body">
+        <section id="fontStep_glyphs" class="font-step">
+          <div class="font-toolbar">
+            <button id="fontImportFolder" class="btn primary">Import Glyph Folder&hellip;</button>
+            <button id="fontAddImages" class="btn">Add PNG Images&hellip;</button>
+            <button id="fontOpenPackage" class="btn">Open Existing Font&hellip;</button>
+            <button id="fontAddSpace" class="btn">Add Space</button>
+            <span id="fontSourceStatus" class="dim small"></span>
+          </div>
+          <div class="font-summary-row">
+            <div id="fontGlyphSummary" class="font-kpis"></div>
+            <div class="font-help">Filename detection understands literal characters, common names, decimal/hex IDs, and Unicode-style names. Every mapping remains editable.</div>
+          </div>
+          <div id="fontGlyphWarnings" class="font-message-list"></div>
+          <div class="font-glyph-layout">
+            <div class="font-table-wrap">
+              <div class="font-table-head">
+                <span>Artwork</span><span>Source filename</span><span>Character</span><span>Unicode</span><span>Size</span><span>Metrics</span><span>Status</span><span></span>
+              </div>
+              <div id="fontGlyphTable" class="font-glyph-table"></div>
+            </div>
+            <aside id="fontGlyphDetail" class="font-detail">
+              <div class="sub">Selected glyph</div>
+              <div class="dim small">Select a glyph to inspect it. Replace, rename, remove, or remap it directly in the list.</div>
+            </aside>
+          </div>
+        </section>
+
+        <section id="fontStep_layout" class="font-step hidden">
+          <div class="font-columns">
+            <div class="font-card">
+              <div class="sub">Font layout</div>
+              <div class="font-form-grid">
+                <label>Runtime face<input id="fontFace" type="text" spellcheck="false" /></label>
+                <label>Design size<input id="fontSize" type="number" min="1" step="1" /></label>
+                <label>Line height<input id="fontLineHeight" type="number" min="1" step="1" /></label>
+                <label>Artwork baseline<input id="fontBaseline" type="number" step="1" /></label>
+                <label>Letter spacing<input id="fontLetterSpacing" type="number" step="1" /></label>
+                <label>Space width<input id="fontSpaceWidth" type="number" min="1" step="1" /></label>
+              </div>
+              <div class="font-help">Artwork baseline positions images inside the line. Letter spacing is baked into each glyph advance because the Web SDK loader uses integer BMFont metrics.</div>
+            </div>
+
+            <div class="font-card">
+              <div class="sub">Expected characters</div>
+              <label class="font-stacked">Preset
+                <select id="fontExpectedPreset">
+                  <option value="none">None</option>
+                  <option value="latin">Latin A-Z, a-z, 0-9</option>
+                  <option value="uppercase">Uppercase A-Z and 0-9</option>
+                  <option value="numbers">Numbers and common currency</option>
+                  <option value="custom">Custom</option>
+                </select>
+              </label>
+              <label class="font-stacked">Characters
+                <textarea id="fontExpectedChars" rows="3" spellcheck="false"></textarea>
+              </label>
+              <div class="font-help">Expected characters are a review aid. Missing glyphs are warnings, not automatically created artwork.</div>
+            </div>
+
+            <div class="font-card">
+              <div class="sub">Atlas packing</div>
+              <div class="font-form-grid compact">
+                <label>Padding<input id="fontPadding" type="number" min="1" max="64" step="1" /></label>
+                <label>Extrude<input id="fontExtrude" type="number" min="0" max="16" step="1" /></label>
+                <label>Outer border<input id="fontBorder" type="number" min="0" max="64" step="1" /></label>
+                <label>Max width<input id="fontMaxW" type="number" min="64" max="8192" step="64" /></label>
+                <label>Max height<input id="fontMaxH" type="number" min="64" max="8192" step="64" /></label>
+              </div>
+              <label class="chk"><input id="fontTrim" type="checkbox" /> Trim transparent padding while preserving placement</label>
+              <label class="chk"><input id="fontPOT" type="checkbox" /> Power-of-two texture</label>
+            </div>
+          </div>
+
+          <div class="font-card font-metric-card">
+            <div class="font-metric-head">
+              <div class="sub">Per-character correction</div>
+              <select id="fontMetricGlyph"></select>
+            </div>
+            <div class="font-metric-editor">
+              <div class="font-metric-preview"><canvas id="fontMetricCanvas" width="300" height="190"></canvas></div>
+              <div class="font-form-grid">
+                <label>X placement<input id="fontXAdjust" type="number" step="1" /></label>
+                <label>Y placement<input id="fontYAdjust" type="number" step="1" /></label>
+                <label>Advance adjustment<input id="fontAdvanceAdjust" type="number" step="1" /></label>
+              </div>
+              <div>
+                <div id="fontMetricReadout" class="font-mono-block"></div>
+                <button id="fontMetricReset" class="btn">Reset selected corrections</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="fontStep_preview" class="font-step hidden">
+          <div class="font-preview-controls">
+            <label>Sample
+              <select id="fontSamplePreset">
+                <option value="alphabet">Alphabet</option>
+                <option value="numbers">Numbers</option>
+                <option value="currency">Currency &amp; values</option>
+                <option value="labels">Short game labels</option>
+                <option value="long">Long game text</option>
+                <option value="mixed">Mixed symbols</option>
+                <option value="custom">Custom</option>
+              </select>
+            </label>
+            <label class="font-sample-input">Preview text
+              <textarea id="fontSampleText" rows="2" spellcheck="false"></textarea>
+            </label>
+            <label>Scale
+              <input id="fontPreviewScale" type="number" min="0.25" max="4" step="0.25" />
+            </label>
+          </div>
+          <div class="font-preview-grid">
+            <div class="font-card">
+              <div class="font-card-title"><span>Runtime-compatible text preview</span><span id="fontTextInfo" class="dim small"></span></div>
+              <div class="font-canvas-scroll"><canvas id="fontTextCanvas" width="900" height="300"></canvas></div>
+            </div>
+            <div class="font-card">
+              <div class="font-card-title"><span>Packed texture</span><span id="fontAtlasInfo" class="dim small"></span></div>
+              <div class="font-canvas-scroll checker"><canvas id="fontAtlasCanvas" width="600" height="300"></canvas></div>
+            </div>
+          </div>
+          <div class="font-card">
+            <div class="sub">Verification</div>
+            <div id="fontVerification" class="font-verification"></div>
+          </div>
+        </section>
+
+        <section id="fontStep_export" class="font-step hidden">
+          <div class="font-export-grid">
+            <div class="font-card">
+              <div class="sub">Target project</div>
+              <div class="font-toolbar">
+                <button id="fontPickProject" class="btn">Select Stake Engine Project&hellip;</button>
+                <button id="fontClearProject" class="btn">Standalone Export</button>
+              </div>
+              <div id="fontTargetInfo" class="font-mono-block">No project selected. The package can still be exported to any folder.</div>
+            </div>
+            <div class="font-card">
+              <div class="sub">Package naming</div>
+              <div class="font-form-grid">
+                <label>File base<input id="fontFileBase" type="text" spellcheck="false" /></label>
+                <label>Folder name<input id="fontFolderName" type="text" spellcheck="false" /></label>
+                <label>Asset key<input id="fontAssetKey" type="text" spellcheck="false" /></label>
+              </div>
+              <label class="font-stacked">Output parent
+                <span class="font-path-row"><input id="fontOutputParent" type="text" readonly /><button id="fontChooseOutput" class="btn">Choose&hellip;</button></span>
+              </label>
+            </div>
+            <div class="font-card">
+              <div class="sub">Generated files</div>
+              <div class="font-format-grid">
+                <label class="chk"><input id="fontFormatPng" type="checkbox" /> PNG texture</label>
+                <label class="chk"><input id="fontFormatWebp" type="checkbox" /> Lossless WebP texture</label>
+                <label class="chk"><input id="fontFormatXml" type="checkbox" /> BMFont XML</label>
+                <label class="chk"><input id="fontFormatJson" type="checkbox" /> BMFont JSON</label>
+                <label class="chk"><input id="fontFormatIndex" type="checkbox" /> Legacy index.ts</label>
+              </div>
+              <label class="font-stacked">Runtime texture
+                <select id="fontRuntimeTexture">
+                  <option value="webp">Lossless WebP</option>
+                  <option value="png">PNG</option>
+                </select>
+              </label>
+              <label class="chk"><input id="fontRegisterAfter" type="checkbox" /> Register XML in the selected app after verified export</label>
+            </div>
+          </div>
+          <div class="font-export-review">
+            <div class="font-card">
+              <div class="sub">Pre-export summary</div>
+              <div id="fontExportSummary" class="font-summary-block"></div>
+              <div id="fontExportWarnings" class="font-message-list"></div>
+            </div>
+            <div class="font-card">
+              <div class="sub">Export result</div>
+              <div id="fontExportResult" class="font-summary-block dim">Nothing exported in this session.</div>
+              <div class="font-toolbar">
+                <button id="fontOpenExportFolder" class="btn" disabled>Open Output Folder</button>
+                <button id="fontRegisterNow" class="btn" disabled>Register in Project</button>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <div class="font-foot">
+        <div id="fontFooterStatus" class="dim small"></div>
+        <span class="font-foot-spacer"></span>
+        <button id="fontBack" class="btn">&larr; Back</button>
+        <button id="fontNext" class="btn primary">Next &rarr;</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toasts"></div>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

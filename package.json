@@ -1,0 +1,70 @@
+{
+  "name": "atlas-editor",
+  "productName": "Exporter",
+  "version": "1.0.0",
+  "description": "Desktop exporter for Stake Engine texture atlases, Spine animations, and bitmap fonts",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "smoke": "electron . --smoke-test",
+    "smoke:anim": "electron . --smoke-test --smoke-anim=sample_animation/my_animation --smoke-reference=sample_animation/sample_output",
+    "smoke:drawcalls": "electron . --smoke-test --smoke-drawcalls=sample_atlas",
+    "smoke:font": "electron . --smoke-test --smoke-font=sample_font",
+    "test": "npm run test:exporter && npm run test:texture && npm run test:cleanup && npm run test:drawcalls && npm run test:font",
+    "test:exporter": "node tests/animation-exporter-regression.mjs",
+    "test:texture": "node tests/animation-texture-quality-regression.mjs",
+    "test:cleanup": "node tests/animation-cleanup-regression.mjs",
+    "test:drawcalls": "node --test tests/spine-draw-calls-regression.mjs",
+    "verify:spine": "node spine/verify.mjs",
+    "test:font": "node tests/bitmap-font-exporter-regression.mjs",
+    "dist": "electron-builder --win"
+  },
+  "author": "ichiwoah",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.ichiwoah.atlaseditor",
+    "productName": "Exporter",
+    "files": [
+      "main.js",
+      "preload.js",
+      "pngenc.js",
+      "font/**/*",
+      "spine/**/*",
+      "renderer/**/*",
+      "node_modules/@img/**/*",
+      "node_modules/@esotericsoftware/spine-core/dist/**/*",
+      "node_modules/@esotericsoftware/spine-core/package.json",
+      "node_modules/color-name/**/*",
+      "node_modules/color-string/**/*",
+      "node_modules/color/**/*",
+      "node_modules/detect-libc/**/*",
+      "node_modules/is-arrayish/**/*",
+      "node_modules/semver/**/*",
+      "node_modules/simple-swizzle/**/*",
+      "node_modules/sharp/**/*"
+    ],
+    "asarUnpack": [
+      "node_modules/@img/**/*",
+      "node_modules/sharp/**/*"
+    ],
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  },
+  "dependencies": {
+    "@esotericsoftware/spine-core": "^4.2.74",
+    "sharp": "^0.34.3"
+  }
+}
