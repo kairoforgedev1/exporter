@@ -113,6 +113,39 @@ export function detectVariant(skeletonName, packageName) {
   return null;
 }
 
+/**
+ * Fold a separated atlas name into the camelCase an output folder uses:
+ * `hidden_spins_awarded` becomes `hiddenSpinsAwarded`. Inner capitals are left
+ * alone, so `my_HD_atlas` stays `myHDAtlas` rather than losing the acronym.
+ */
+export function toCamelCase(name) {
+  const parts = String(name ?? '').split(/[\s_-]+/).filter(Boolean);
+  if (!parts.length) return '';
+  return parts
+    .map((part, i) =>
+      i === 0
+        ? part.charAt(0).toLowerCase() + part.slice(1)
+        : part.charAt(0).toUpperCase() + part.slice(1)
+    )
+    .join('');
+}
+
+/**
+ * The two halves of the asset-key convention. A registered key is upper case
+ * throughout; the skeleton file beside it is that key lower-cased and always
+ * carries the `.json` extension, so an already-suffixed key is not doubled up.
+ */
+export function toAssetKeyCase(name) {
+  return String(name ?? '').toUpperCase();
+}
+
+export function jsonNameForAssetKey(assetKey, fallback = '') {
+  const base =
+    String(assetKey ?? '').trim().replace(/\.json$/i, '').toLowerCase() ||
+    String(fallback ?? '').trim().toLowerCase();
+  return base ? `${base}.json` : '';
+}
+
 export class AnimationReExport {
   constructor({ toast }) {
     this.toast = toast;
@@ -134,6 +167,12 @@ export class AnimationReExport {
     this.exported = null;
     this.atlasName = 'symbols';
     this.outputFolder = 'symbols';
+    // Both naming links are on by default: the Stake Engine convention is that
+    // the folder is the atlas name in camelCase, the asset key is upper case,
+    // and the skeleton file is that key lower-cased with a `.json` extension.
+    // Unlink either one to type a name that does not follow from its source.
+    this.linkFolderToAtlas = true;
+    this.linkJsonToAssetKey = true;
     // Source-name mode is an exact, non-destructive conversion override. The
     // editable target/custom map remains stored so switching back restores it.
     this.animationNameMode = 'target';
@@ -158,8 +197,11 @@ export class AnimationReExport {
     this.convertedTextureQuality = null;
     this.convertedAnimationNameMode = null;
     this.inexactSourcePages = [];
-    // Off by default: this deletes files inside the user's project.
-    this.cleanTarget = false;
+    // On by default so an export leaves the folder holding only what it just
+    // wrote. Nothing is deleted silently: the exact list is shown for
+    // confirmation first, and only loose files of the export's own types in
+    // that one folder are ever considered.
+    this.cleanTarget = true;
   }
 
   get primaryTextureExtension() {
@@ -799,7 +841,9 @@ export class AnimationReExport {
     // Sensible defaults from the reference.
     if (ref?.atlasFiles?.length) this.atlasName = stripExt(ref.atlasFiles[0]);
     else if (ref?.name) this.atlasName = ref.name;
-    this.outputFolder = ref?.name || this.atlasName;
+    this.outputFolder = this.linkFolderToAtlas
+      ? this.linkedOutputFolder()
+      : ref?.name || this.atlasName;
     if (this.targetKind === 'project') this.packing.registrationScale = this.target.dominantScale ?? 1;
   }
 
@@ -821,7 +865,8 @@ export class AnimationReExport {
       for (const sk of pkg.skeletons) {
         const existing = this.mappings.get(sk.id);
         const sourceAnimations = [...(sk.summary?.animations || [])];
-        const assetKey = existing?.assetKey || sk.name.toUpperCase().replace(/[^A-Z0-9_$]/g, '_');
+        let assetKey = existing?.assetKey || sk.name.toUpperCase().replace(/[^A-Z0-9_$]/g, '_');
+        if (this.linkJsonToAssetKey) assetKey = toAssetKeyCase(assetKey);
         // A package whose skeletons are device variants of one feature keeps
         // its animation names; only single-skeleton packages get the symbol
         // convention applied, where the bare symbol name is the contract.
@@ -843,6 +888,10 @@ export class AnimationReExport {
           // authoritative source-name list match the current Spine JSON.
           existing.package = pkg.name;
           existing.skeleton = sk.name;
+          if (this.linkJsonToAssetKey) {
+            existing.assetKey = assetKey;
+            existing.jsonName = jsonNameForAssetKey(assetKey, sk.name);
+          }
           existing.sourceAnimations = sourceAnimations;
           existing.animations = Object.fromEntries(
             sourceAnimations.map((name) => [
@@ -858,7 +907,9 @@ export class AnimationReExport {
           package: pkg.name,
           skeleton: sk.name,
           assetKey,
-          jsonName: `${sk.name.toLowerCase()}.json`,
+          jsonName: this.linkJsonToAssetKey
+            ? jsonNameForAssetKey(assetKey, sk.name)
+            : `${sk.name.toLowerCase()}.json`,
           sourceAnimations,
           animations: suggestion.map,
           unmet: suggestion.unmet,
@@ -869,6 +920,7 @@ export class AnimationReExport {
 
   renderMapping() {
     const usage = this.target?.animationUsage || {};
+    const linkJson = !!this.linkJsonToAssetKey;
     const rows = [];
 
     for (const pkg of this.packages) {
@@ -917,8 +969,12 @@ export class AnimationReExport {
             (sk.variantLabel ? ` <span class="badge badge-variant">${escapeHtml(sk.variantLabel)}</span>` : '') +
             (pkg.complete ? '' : '<div class="err small">incomplete — cannot convert</div>') +
             `</td>` +
-            `<td><input class="anim-input anim-key" data-id="${escapeHtml(sk.id)}" value="${escapeHtml(m.assetKey)}" />${requestedNote}</td>` +
-            `<td><input class="anim-input anim-json" data-id="${escapeHtml(sk.id)}" value="${escapeHtml(m.jsonName)}" /></td>` +
+            `<td><input class="anim-input anim-key" data-id="${escapeHtml(sk.id)}" value="${escapeHtml(m.assetKey)}" placeholder="SAMPLE_NAME" />${requestedNote}</td>` +
+            `<td><input class="anim-input anim-json" data-id="${escapeHtml(sk.id)}" value="${escapeHtml(m.jsonName)}" placeholder="sample_name.json" ${
+              linkJson
+                ? 'disabled title="Follows the asset key while the link is on."'
+                : ''
+            } /></td>` +
             `<td>${
               many
                 ? `<details><summary class="dim small">${anims.length} animations — ${summaryNote}</summary>${animRows}</details>`
@@ -931,10 +987,16 @@ export class AnimationReExport {
 
     $('animMappingTable').innerHTML =
       `<table class="anim-table"><thead><tr><th>Skeleton</th><th>Asset key</th>` +
-      `<th>Output JSON</th><th>Animation names</th></tr></thead><tbody>${rows.join('')}</tbody></table>`;
+      `<th>Output JSON <button id="animLinkJson" type="button" class="icon-btn link-toggle" ` +
+      `aria-pressed="${linkJson}" title="${
+        linkJson
+          ? 'Output JSON follows the asset key, lower-cased with a .json extension — click to unlink and edit it'
+          : 'Link the output JSON to the asset key (upper-case key, lower-case .json file)'
+      }">&#128279;</button></th>` +
+      `<th>Animation names</th></tr></thead><tbody>${rows.join('')}</tbody></table>`;
 
     $('animAtlasName').value = this.atlasName;
-    $('animFolderName').value = this.outputFolder;
+    this.renderFolderLink();
     $('animScale').value = this.packing.registrationScale;
     $('animMaxW').value = this.packing.maxWidth;
     $('animMaxH').value = this.packing.maxHeight;
@@ -963,16 +1025,29 @@ export class AnimationReExport {
     root.oninput = (e) => {
       const el = e.target;
       const id = el.dataset.id;
-      if (el.classList.contains('anim-key')) this.mappings.get(id).assetKey = el.value.trim();
+      if (el.classList.contains('anim-key')) this.applyAssetKeyInput(root, el, this.mappings.get(id));
       else if (el.classList.contains('anim-json')) this.mappings.get(id).jsonName = el.value.trim();
       else if (el.classList.contains('anim-anim'))
         this.mappings.get(id).animations[el.dataset.anim] = el.value.trim();
-      else if (el.id === 'animAtlasName') this.atlasName = el.value.trim() || 'symbols';
-      else if (el.id === 'animFolderName') this.outputFolder = el.value.trim() || this.atlasName;
+      else if (el.id === 'animAtlasName') {
+        this.atlasName = el.value.trim() || 'symbols';
+        if (this.linkFolderToAtlas) {
+          this.outputFolder = this.linkedOutputFolder();
+          // An emptied atlas name falls back to `symbols` in state, but showing
+          // that in the folder while the source field is blank reads as a value
+          // the user typed. Blank both and let the placeholders explain.
+          $('animFolderName').value = el.value.trim() ? this.outputFolder : '';
+        }
+      } else if (el.id === 'animFolderName')
+        this.outputFolder = el.value.trim() || this.atlasName;
       else if (el.id === 'animScale') this.packing.registrationScale = Number(el.value) || 1;
       else if (el.id === 'animMaxW') this.packing.maxWidth = Number(el.value) || 4096;
       else if (el.id === 'animMaxH') this.packing.maxHeight = Number(el.value) || 4096;
       else if (el.id === 'animPadding') this.packing.padding = Number(el.value) || 0;
+    };
+    root.onclick = (e) => {
+      if (e.target.closest('#animLinkFolder')) this.setFolderLink(!this.linkFolderToAtlas);
+      else if (e.target.closest('#animLinkJson')) this.setJsonLink(!this.linkJsonToAssetKey);
     };
     root.onchange = (e) => {
       const el = e.target;
@@ -991,6 +1066,88 @@ export class AnimationReExport {
       }
       $('animNext').disabled = !this.canAdvance();
     };
+  }
+
+  /**
+   * Take a keystroke in an asset-key field. While the link is on the key is
+   * held in upper case and the skeleton file follows it, so the typed text is
+   * rewritten in place — the caret is put back where it was, otherwise editing
+   * anywhere but the end of the field would throw the cursor to the end.
+   */
+  applyAssetKeyInput(root, el, mapping) {
+    if (!mapping) return;
+    if (!this.linkJsonToAssetKey) {
+      mapping.assetKey = el.value.trim();
+      return;
+    }
+    const typed = el.value;
+    const upper = toAssetKeyCase(typed);
+    if (upper !== typed) {
+      const caret = el.selectionStart;
+      el.value = upper;
+      // A few characters grow when upper-cased (ß -> SS); only put the caret
+      // back when the rewrite was character-for-character.
+      if (caret !== null && upper.length === typed.length) el.setSelectionRange(caret, caret);
+    }
+    mapping.assetKey = upper.trim();
+    mapping.jsonName = jsonNameForAssetKey(mapping.assetKey, mapping.skeleton);
+    const jsonInput = [...root.querySelectorAll('.anim-json')].find(
+      (node) => node.dataset.id === el.dataset.id
+    );
+    // Blank alongside an emptied key so both fields fall back to placeholders.
+    if (jsonInput) jsonInput.value = el.value.trim() ? mapping.jsonName : '';
+  }
+
+  /**
+   * Turn the asset-key link on or off. Switching it on adopts the convention
+   * for every row at once, so the table never shows a half-applied state.
+   */
+  setJsonLink(on) {
+    this.linkJsonToAssetKey = on;
+    if (on) {
+      for (const m of this.mappings.values()) {
+        m.assetKey = toAssetKeyCase(m.assetKey).trim();
+        m.jsonName = jsonNameForAssetKey(m.assetKey, m.skeleton);
+      }
+    }
+    this.renderMapping();
+    // renderMapping rebuilds the table, so the button that was clicked is gone.
+    $('animLinkJson')?.focus();
+  }
+
+  /** The output folder the atlas name implies while the link toggle is on. */
+  linkedOutputFolder() {
+    return toCamelCase(this.atlasName) || this.atlasName;
+  }
+
+  /**
+   * Turn the atlas-name link on or off, adopting the derived folder as it goes
+   * on. Unlinking keeps whatever name is showing so the field never empties.
+   */
+  setFolderLink(on) {
+    this.linkFolderToAtlas = on;
+    if (on) this.outputFolder = this.linkedOutputFolder();
+    this.renderFolderLink();
+  }
+
+  /**
+   * Reflect the link into the toggle and the output folder field. While it is
+   * on the folder is derived from the atlas name, so the input is disabled
+   * rather than left editable with a value the next keystroke would overwrite.
+   */
+  renderFolderLink() {
+    const btn = $('animLinkFolder');
+    if (btn) {
+      btn.setAttribute('aria-pressed', this.linkFolderToAtlas ? 'true' : 'false');
+      btn.title = this.linkFolderToAtlas
+        ? 'Output folder follows the atlas name in camelCase — click to unlink and edit it'
+        : 'Link the output folder to the atlas name (underscore_case becomes camelCase)';
+    }
+    const folder = $('animFolderName');
+    if (folder) {
+      folder.disabled = this.linkFolderToAtlas;
+      folder.value = this.outputFolder;
+    }
   }
 
   renderAnimationNameModeHint() {
