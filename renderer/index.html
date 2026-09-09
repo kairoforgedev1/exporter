@@ -322,8 +322,13 @@
         <!-- Step 3 -->
         <section id="animStep_mapping" class="anim-step hidden">
           <div class="anim-settings">
-            <label>Atlas name <input id="animAtlasName" class="anim-input" /></label>
-            <label>Output folder <input id="animFolderName" class="anim-input" /></label>
+            <div class="anim-link-group">
+              <label>Atlas name <input id="animAtlasName" class="anim-input" placeholder="sample_name" /></label>
+              <button id="animLinkFolder" type="button" class="icon-btn link-toggle"
+                      aria-pressed="true" aria-controls="animFolderName"
+                      title="Link the output folder to the atlas name (underscore_case becomes camelCase)">&#128279;</button>
+              <label>Output folder <input id="animFolderName" class="anim-input" placeholder="sampleName" /></label>
+            </div>
             <label>Registration scale <input id="animScale" class="anim-input narrow" type="number" step="0.5" /></label>
             <label>Max W <input id="animMaxW" class="anim-input narrow" type="number" /></label>
             <label>Max H <input id="animMaxH" class="anim-input narrow" type="number" /></label>
@@ -379,7 +384,7 @@
           <div id="animChanges" class="anim-block"></div>
           <div class="anim-settings">
             <label class="chk">
-              <input id="animCleanTarget" type="checkbox" />
+              <input id="animCleanTarget" type="checkbox" checked />
               Remove stale files from the target folder
             </label>
             <div class="dim small anim-settings-note">

@@ -853,6 +853,30 @@ input, select { font-family: inherit; color: inherit; }
   background: var(--panel);
   cursor: default;
 }
+.anim-input:disabled {
+  color: var(--text-dim);
+  background: var(--panel);
+  cursor: not-allowed;
+}
+/* Atlas name, the link toggle and the output folder read as one control. */
+.anim-link-group { display: inline-flex; align-items: center; gap: 8px; }
+.link-toggle {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  font-size: 12px;
+  line-height: 1;
+  vertical-align: middle;
+  opacity: 0.55;
+}
+.anim-table th .link-toggle { margin-left: 4px; }
+.link-toggle:hover { opacity: 1; }
+.link-toggle[aria-pressed='true'] {
+  opacity: 1;
+  color: var(--accent);
+  background: var(--panel);
+  box-shadow: inset 0 0 0 1px var(--accent-dim);
+}
 /* Explanatory line that wraps onto its own row under the settings controls. */
 .anim-settings-note { flex-basis: 100%; margin-top: -2px; }
 .chk { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }

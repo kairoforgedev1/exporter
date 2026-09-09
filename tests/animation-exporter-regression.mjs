@@ -1015,3 +1015,127 @@ test('Export refuses a preview built with a different animation-name mode', asyn
     else globalThis.window = previousWindow;
   }
 });
+
+test('linking the output folder folds the atlas name into camelCase', async () => {
+  const previousWindow = globalThis.window;
+  globalThis.window = { native: {} };
+
+  try {
+    const { AnimationReExport, toCamelCase } = await import('../renderer/js/animre.js');
+
+    assert.equal(toCamelCase('hidden_spins_awarded'), 'hiddenSpinsAwarded');
+    assert.equal(toCamelCase('symbols'), 'symbols');
+    assert.equal(toCamelCase('Free_Spins'), 'freeSpins');
+    assert.equal(toCamelCase('my_HD_atlas'), 'myHDAtlas', 'inner capitals survive');
+    assert.equal(toCamelCase('big-win symbols'), 'bigWinSymbols');
+    assert.equal(toCamelCase(''), '');
+
+    const workflow = Object.create(AnimationReExport.prototype);
+    workflow.atlasName = 'hidden_spins_awarded';
+    workflow.outputFolder = 'legacy_folder';
+    workflow.linkFolderToAtlas = false;
+    // Without a DOM the render step is a no-op; the state is what export reads.
+    workflow.renderFolderLink = () => {};
+
+    workflow.setFolderLink(true);
+    assert.equal(workflow.outputFolder, 'hiddenSpinsAwarded');
+
+    workflow.atlasName = 'wild_symbol';
+    workflow.setFolderLink(true);
+    assert.equal(workflow.outputFolder, 'wildSymbol');
+
+    workflow.setFolderLink(false);
+    assert.equal(workflow.outputFolder, 'wildSymbol', 'unlinking keeps the shown name');
+  } finally {
+    if (previousWindow === undefined) delete globalThis.window;
+    else globalThis.window = previousWindow;
+  }
+});
+
+test('the asset-key link holds keys upper case and derives the .json file', async () => {
+  const previousWindow = globalThis.window;
+  const previousDocument = globalThis.document;
+  globalThis.window = { native: {} };
+  // Rendering is stubbed below; this only covers the toggle's focus restore.
+  globalThis.document = { getElementById: () => null };
+
+  try {
+    const { AnimationReExport, jsonNameForAssetKey, toAssetKeyCase } = await import(
+      '../renderer/js/animre.js'
+    );
+
+    assert.equal(toAssetKeyCase('big_win'), 'BIG_WIN');
+    assert.equal(jsonNameForAssetKey('BIG_WIN'), 'big_win.json');
+    assert.equal(jsonNameForAssetKey('BIG_WIN.JSON'), 'big_win.json', 'never doubles the suffix');
+    assert.equal(jsonNameForAssetKey('', 'Feature'), 'feature.json', 'falls back to the skeleton');
+    assert.equal(jsonNameForAssetKey('', ''), '');
+
+    const workflow = Object.create(AnimationReExport.prototype);
+    workflow.linkJsonToAssetKey = true;
+    workflow.renderMapping = () => {};
+    workflow.mappings = new Map([
+      ['a', { assetKey: 'big_win', jsonName: 'stale.json', skeleton: 'big_win' }],
+      ['b', { assetKey: '', jsonName: 'stale.json', skeleton: 'wild' }],
+    ]);
+
+    workflow.setJsonLink(true);
+    assert.deepEqual(
+      [...workflow.mappings.values()].map((m) => [m.assetKey, m.jsonName]),
+      [
+        ['BIG_WIN', 'big_win.json'],
+        ['', 'wild.json'],
+      ]
+    );
+
+    workflow.setJsonLink(false);
+    assert.equal(workflow.linkJsonToAssetKey, false);
+    assert.equal(
+      workflow.mappings.get('a').jsonName,
+      'big_win.json',
+      'unlinking keeps the derived name as the starting point for manual edits'
+    );
+  } finally {
+    if (previousWindow === undefined) delete globalThis.window;
+    else globalThis.window = previousWindow;
+    if (previousDocument === undefined) delete globalThis.document;
+    else globalThis.document = previousDocument;
+  }
+});
+
+test('both naming links start on and shape the first build of a mapping', async () => {
+  const previousWindow = globalThis.window;
+  globalThis.window = { native: {} };
+
+  try {
+    const { AnimationReExport } = await import('../renderer/js/animre.js');
+    const workflow = Object.create(AnimationReExport.prototype);
+    workflow.reset();
+
+    assert.equal(workflow.linkFolderToAtlas, true, 'atlas/folder link defaults on');
+    assert.equal(workflow.linkJsonToAssetKey, true, 'key/json link defaults on');
+    assert.equal(workflow.cleanTarget, true, 'stale-file cleanup defaults on');
+
+    workflow.target = { animationUsage: {}, spineFolders: [] };
+    workflow.packages = [
+      {
+        name: 'big-win',
+        complete: true,
+        skeletons: [
+          { id: 'big-win::big-win', name: 'big-win', summary: { animations: ['idle'] } },
+        ],
+      },
+    ];
+    workflow.buildMappings();
+
+    const built = workflow.mappings.get('big-win::big-win');
+    assert.equal(built.assetKey, 'BIG_WIN');
+    assert.equal(
+      built.jsonName,
+      'big_win.json',
+      'the file follows the asset key, not the raw skeleton file name'
+    );
+  } finally {
+    if (previousWindow === undefined) delete globalThis.window;
+    else globalThis.window = previousWindow;
+  }
+});
