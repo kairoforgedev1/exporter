@@ -310,6 +310,18 @@ function assetKeyFrom(value) {
   return key.replace(/[^A-Za-z0-9_$]/g, '');
 }
 
+// Same rule the main process applies before writing assets.ts.
+const VALID_ASSET_KEY = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
+
+/**
+ * The Asset key field keeps any valid identifier exactly as typed, so an
+ * existing assets.ts key such as `MMGold` or `mm_gold` can be matched.
+ */
+function assetKeyInput(value) {
+  const trimmed = String(value || '').trim();
+  return VALID_ASSET_KEY.test(trimmed) ? trimmed : assetKeyFrom(trimmed);
+}
+
 function makeTransparentCanvas() {
   const canvas = document.createElement('canvas');
   canvas.width = 1;
@@ -1035,6 +1047,7 @@ export class BitmapFontExporter {
       this.settings.face = $('fontFace').value;
       this.markDirty();
       this.renderGlyphSummary();
+      this.renderTarget();
       this.renderExportSummary();
     });
     $('fontTrim').addEventListener('change', () => {
@@ -1132,15 +1145,32 @@ export class BitmapFontExporter {
     for (const [id, property, transform] of [
       ['fontFileBase', 'fileBase', safeFileBase],
       ['fontFolderName', 'folderName', safeFolderName],
-      ['fontAssetKey', 'assetKey', assetKeyFrom],
+      ['fontAssetKey', 'assetKey', assetKeyInput],
     ]) {
       $(id).addEventListener('change', () => {
         this.naming[property] = transform($(id).value, this.naming[property]);
+        // Show the name the export will actually use, after the shared
+        // output-naming rules, so it can be compared with assets.ts.
+        this.naming[property] = this.outputNames()[property] || this.naming[property];
         $(id).value = this.naming[property];
         this.markDirty({ invalidate: false });
+        this.renderTarget();
         this.renderExportSummary();
       });
     }
+    $('fontExistingFont').addEventListener('change', () => {
+      const key = $('fontExistingFont').value;
+      if (key) {
+        this.adoptRegisteredFont(key);
+      } else if (this.registrationPlan()?.entry) {
+        this.toast(
+          'To add a separate font instead, change the asset key, folder name and runtime face.',
+          'info',
+          7000
+        );
+      }
+      this.renderTarget();
+    });
 
     for (const [id, property] of [
       ['fontFormatPng', 'png'],
@@ -1503,6 +1533,7 @@ export class BitmapFontExporter {
         throw new Error('The source did not contain any visible PNG glyph artwork that could be decoded.');
       }
       if (previous.source && previous.source !== scan) await this.cleanupSource(previous.source);
+      if (this.target) this.autoAdoptRegistration();
       $('fontSourceStatus').textContent = `${scan.fromArchive ? 'Extracted' : 'Loaded'} ${this.glyphs.length - 1} artwork glyph${this.glyphs.length - 1 === 1 ? '' : 's'}.`;
       this.markDirty();
       this.goto('glyphs', { force: true });
@@ -1614,6 +1645,18 @@ export class BitmapFontExporter {
     this.syncControls();
   }
 
+  /**
+   * Store derived names in the exact form the export will use, so the naming
+   * fields show the real file, folder and asset key (e.g. `goldFont`, not a
+   * `gold_font` that the output rules would silently re-case).
+   */
+  normalizeNaming() {
+    const names = this.sanitizedOutputNames(this.naming);
+    this.naming.fileBase = names.fileBase;
+    this.naming.folderName = names.folderName;
+    this.naming.assetKey = names.assetKey;
+  }
+
   applyNamesFromSource(scan) {
     const sourceRoot = scan.packageDir || scan.root || scan.originalPath || '';
     const sourceName = safeFolderName(basename(sourceRoot), 'bitmapFont');
@@ -1622,6 +1665,7 @@ export class BitmapFontExporter {
     this.naming.fileBase = fileBase;
     this.naming.folderName = sourceName;
     this.naming.assetKey = assetKeyFrom(sourceName);
+    this.normalizeNaming();
     this.syncControls();
   }
 
@@ -1799,6 +1843,7 @@ export class BitmapFontExporter {
     this.naming.fileBase = base;
     this.naming.folderName = safeFolderName(basename(scan.packageDir || scan.root), assetKeyFrom(this.settings.face));
     this.naming.assetKey = assetKeyFrom(this.naming.folderName);
+    this.normalizeNaming();
     this.sourceWarnings = [
       ...this.sourceWarnings,
       ...warnings.map((warning) => this.normalizedSourceDiagnostic(warning)),
@@ -2849,6 +2894,7 @@ export class BitmapFontExporter {
       if (target.createAssetAvailable === false) this.formats.index = false;
       this.formats.registerAfter = !!this.formats.xml;
       this.coerceFormats();
+      this.autoAdoptRegistration();
       this.syncControls();
       this.markDirty({ invalidate: false });
       this.renderAll();
@@ -2885,63 +2931,181 @@ export class BitmapFontExporter {
     return `fonts/${names.folderName}/${names.xmlFile}`;
   }
 
+  registeredFontEntries() {
+    return asArray(this.target?.registeredFonts || this.target?.fontEntries);
+  }
+
+  /**
+   * How this export relates to assets.ts: `add` a new key, `update` the font
+   * already registered at the same XML, or `repoint` an existing key at a new
+   * XML path. The asset key identifies the font being updated.
+   */
+  registrationPlan(names = this.outputNames()) {
+    if (!this.target) return null;
+    const entry = this.registeredFontEntries().find((item) => String(item.key) === names.assetKey);
+    if (!entry) return { mode: 'add', entry: null };
+    const samePath =
+      String(entry.xmlRel || '').toLowerCase() === this.desiredXmlRel(names).toLowerCase();
+    return { mode: samePath ? 'update' : 'repoint', entry };
+  }
+
+  registrationPlanText(plan, names = this.outputNames()) {
+    if (!plan) return '';
+    if (plan.mode === 'update') {
+      return `Updates registered font "${plan.entry.key}" in place; its package files are overwritten and assets.ts is unchanged.`;
+    }
+    if (plan.mode === 'repoint') {
+      return `Updates registered font "${plan.entry.key}": assets.ts will point at ${this.desiredXmlRel(names)} instead of ${plan.entry.xmlRel}.`;
+    }
+    return `Adds a new font registration "${names.assetKey}".`;
+  }
+
   targetCollisions(names = this.outputNames()) {
     if (!this.target) return [];
     const desiredPath = this.desiredXmlRel(names).toLowerCase();
     const desiredKey = names.assetKey;
     const desiredFace = this.settings.face.trim();
-    const entries = asArray(this.target.registeredFonts || this.target.fontEntries);
+    const entries = this.registeredFontEntries();
     const issues = [];
-    const exact = entries.find(
-      (entry) =>
-        String(entry.key) === desiredKey &&
-        String(entry.xmlRel || '').toLowerCase() === desiredPath &&
-        String(entry.face || '') === desiredFace
-    );
+    // The entry with the same key is the font being updated, so its old path
+    // and face are replaced rather than collided with. Only other keys can
+    // own this XML path or runtime face.
     for (const entry of entries) {
-      const path = String(entry.xmlRel || '').toLowerCase();
-      if (String(entry.key) === desiredKey && path !== desiredPath) {
+      if (String(entry.key) === desiredKey) continue;
+      if (String(entry.xmlRel || '').toLowerCase() === desiredPath) {
         issues.push({
           level: 'error',
-          message: `Asset key "${desiredKey}" already registers ${entry.xmlRel}.`,
+          message: `${this.desiredXmlRel(names)} is already registered as "${entry.key}". Choose "${entry.key}" under Update registered font to overwrite it.`,
         });
       }
-      if (path === desiredPath && String(entry.key) !== desiredKey) {
+      if (entry.face === desiredFace) {
         issues.push({
           level: 'error',
-          message: `${this.desiredXmlRel(names)} is already registered as "${entry.key}".`,
-        });
-      }
-      if (entry.face === desiredFace && path !== desiredPath) {
-        issues.push({
-          level: 'error',
-          message: `Runtime face "${desiredFace}" is already registered by "${entry.key}". Pixi caches bitmap fonts by face.`,
+          message: `Runtime face "${desiredFace}" is already registered by "${entry.key}". Pixi caches bitmap fonts by face, so update "${entry.key}" or rename the face.`,
         });
       }
     }
-    // existingKeys also contains non-font assets; those are a collision even
-    // if no fontEntries record was parsed.
-    if (asArray(this.target.existingKeys).includes(desiredKey) && !exact) {
-      if (!issues.some((issue) => issue.message.includes(`Asset key "${desiredKey}"`))) {
-        issues.push({
-          level: 'error',
-          message: `Asset key "${desiredKey}" is already used in src/game/assets.ts.`,
-        });
-      }
+    // existingKeys also contains non-font assets, which a font must not replace.
+    if (
+      asArray(this.target.existingKeys).includes(desiredKey) &&
+      !entries.some((entry) => String(entry.key) === desiredKey)
+    ) {
+      issues.push({
+        level: 'error',
+        message: `Asset key "${desiredKey}" is already used by a non-font asset in src/game/assets.ts.`,
+      });
     }
     return issues;
+  }
+
+  /**
+   * Naming that reproduces a registered font's exact XML path and key, or
+   * null when the exporter cannot write there (e.g. a nested folder).
+   */
+  adoptableNaming(entry) {
+    const match = /^fonts\/([^/]+)\/([^/]+)\.xml$/i.exec(String(entry?.xmlRel || ''));
+    if (!match) return null;
+    const naming = { fileBase: match[2], folderName: match[1], assetKey: String(entry.key) };
+    const names = this.outputNames(naming);
+    const samePath =
+      this.desiredXmlRel(names).toLowerCase() === String(entry.xmlRel).toLowerCase();
+    return samePath && names.assetKey === naming.assetKey ? naming : null;
+  }
+
+  /** Point the export at a registered font so the next export overwrites it. */
+  adoptRegisteredFont(key) {
+    const entry = this.registeredFontEntries().find((item) => String(item.key) === key);
+    const naming = entry ? this.adoptableNaming(entry) : null;
+    if (!naming) {
+      this.toast(
+        `"${key}" is registered at ${entry?.xmlRel || 'an unknown path'}, which is not a direct fonts/<folder>/<file>.xml package this exporter can overwrite.`,
+        'warn',
+        9000
+      );
+      return false;
+    }
+    Object.assign(this.naming, naming);
+    // Game code selects bitmap fonts by face, so keep the registered face.
+    if (entry.face) this.settings.face = entry.face;
+    if (entry.pageFormat === 'png' || entry.pageFormat === 'webp') {
+      this.formats[entry.pageFormat] = true;
+      this.formats.runtimeTexture = entry.pageFormat;
+    }
+    this.outputParent = this.target.fontsRoot;
+    this.formats.registerAfter = true;
+    this.coerceFormats();
+    this.syncControls();
+    this.markDirty({ invalidate: false });
+    this.renderAll();
+    return true;
+  }
+
+  /**
+   * Select the registered font this source updates, if any: the entry whose
+   * XML was opened, otherwise the entry that already owns the runtime face
+   * (Pixi cannot load two fonts with one face, so that font can only be
+   * updated or the face renamed).
+   */
+  autoAdoptRegistration() {
+    if (!this.target) return null;
+    const normalize = (value) => String(value || '').replace(/\\/g, '/').toLowerCase();
+    const sourceXml = normalize(this.source?.selectedMetadata?.path || this.source?.metadata?.path);
+    const face = this.settings.face.trim();
+    const entries = this.registeredFontEntries();
+    const entry =
+      (sourceXml && entries.find((item) => normalize(item.absolutePath) === sourceXml)) ||
+      entries.find((item) => item.face && item.face === face) ||
+      null;
+    if (!entry || !this.adoptableNaming(entry)) return null;
+    if (this.registrationPlan()?.entry === entry) return entry;
+    if (!this.adoptRegisteredFont(String(entry.key))) return null;
+    this.toast(
+      `This export will update the registered font "${entry.key}" (${entry.xmlRel}).`,
+      'info',
+      7000
+    );
+    return entry;
+  }
+
+  renderExistingFontPicker(plan) {
+    const select = $('fontExistingFont');
+    if (!select) return;
+    const entries = this.registeredFontEntries();
+    const placeholder = !this.target
+      ? 'Select a project first'
+      : entries.length
+        ? 'None: add as a new font'
+        : 'No fonts registered in this app';
+    select.innerHTML =
+      `<option value="">${escapeHtml(placeholder)}</option>` +
+      entries
+        .map((entry) => {
+          const supported = !!this.adoptableNaming(entry);
+          return (
+            `<option value="${escapeHtml(entry.key)}"${supported ? '' : ' disabled'}>` +
+            `${escapeHtml(entry.key)} · ${escapeHtml(entry.face || 'no face')} · ${escapeHtml(entry.xmlRel)}` +
+            `${supported ? '' : ' (unsupported path)'}</option>`
+          );
+        })
+        .join('');
+    select.disabled = !this.target || !entries.length;
+    select.value = plan?.entry ? String(plan.entry.key) : '';
   }
 
   renderTarget() {
     const root = $('fontTargetInfo');
     if (!this.target) {
+      this.renderExistingFontPicker(null);
       root.innerHTML =
         `No project selected. Choose an output parent for a standalone package. ` +
         `<span class="dim">Current Web SDK projects load BMFont XML from assets.ts; index.ts is legacy compatibility output.</span>`;
       return;
     }
     const target = this.target;
-    const collisions = this.targetCollisions();
+    const names = this.outputNames();
+    const collisions = this.targetCollisions(names);
+    const plan = this.registrationPlan(names);
+    this.renderExistingFontPicker(plan);
     root.innerHTML =
       `<div><span class="dim">App</span> ${escapeHtml(target.appName)} <span class="dim">${escapeHtml(target.appDir)}</span></div>` +
       `<div><span class="dim">Runtime</span> Pixi ${escapeHtml(target.pixiVersion || 'unknown')} · pixi-svelte ${escapeHtml(target.pixiSvelteVersion || 'unknown')}</div>` +
@@ -2950,19 +3114,27 @@ export class BitmapFontExporter {
       `<div><span class="dim">Registered fonts</span> ${asArray(target.registeredFonts).length}</div>` +
       (collisions.length
         ? `<div class="err">${escapeHtml(collisions.map((issue) => issue.message).join(' '))}</div>`
-        : `<div class="ok">The proposed key, XML path and runtime face do not collide.</div>`) +
+        : `<div class="ok">${escapeHtml(this.registrationPlanText(plan, names))}</div>`) +
       asArray(target.warnings)
         .map((warning) => `<div class="warn">${escapeHtml(warning?.message || String(warning))}</div>`)
         .join('');
   }
 
-  outputNames() {
+  outputNames(naming = this.naming) {
+    const names = this.sanitizedOutputNames(naming);
+    // The Asset key field is authoritative whenever it is a valid identifier,
+    // so an existing assets.ts key is reproduced exactly instead of re-cased.
+    if (VALID_ASSET_KEY.test(String(naming.assetKey || ''))) names.assetKey = naming.assetKey;
+    return names;
+  }
+
+  sanitizedOutputNames(naming) {
     const fn = FontCore.buildOutputNames || FontCore.createOutputNames;
     const input = {
       fontName: this.settings.face,
-      fileBase: this.naming.fileBase,
-      folderName: this.naming.folderName,
-      assetKey: this.naming.assetKey,
+      fileBase: naming.fileBase,
+      folderName: naming.folderName,
+      assetKey: naming.assetKey,
       runtimeTexture: this.formats.runtimeTexture,
       includePng: this.formats.png,
       includeWebp: this.formats.webp,
@@ -2977,12 +3149,12 @@ export class BitmapFontExporter {
         console.warn('Output naming helper fell back:', error);
       }
     }
-    const fileBase = safeFileBase(this.naming.fileBase);
+    const fileBase = safeFileBase(naming.fileBase);
     return {
       fontName: this.settings.face,
       fileBase,
-      folderName: safeFolderName(this.naming.folderName),
-      assetKey: assetKeyFrom(this.naming.assetKey),
+      folderName: safeFolderName(naming.folderName),
+      assetKey: assetKeyFrom(naming.assetKey),
       pngFile: `${fileBase}.png`,
       webpFile: `${fileBase}.webp`,
       textureFile: `${fileBase}.${this.formats.runtimeTexture}`,
@@ -3171,6 +3343,21 @@ export class BitmapFontExporter {
         message: 'Output is outside the selected app’s fonts folder, so automatic registration is unavailable.',
       });
     }
+    const updatedFace = this.registrationPlan()?.entry?.face;
+    const face = this.settings.face.trim();
+    if (updatedFace && updatedFace !== face) {
+      const usage = asArray(this.target.fontFamilyUsage).find((item) => item.family === updatedFace);
+      const files = asArray(usage?.files);
+      warnings.push({
+        level: 'warn',
+        message:
+          `The runtime face changes from "${updatedFace}" to "${face}". ` +
+          (usage
+            ? `Update the ${usage.count} fontFamily reference${usage.count === 1 ? '' : 's'} to "${updatedFace}" in ` +
+              `${files.slice(0, 3).join(', ')}${files.length > 3 ? ', …' : ''}.`
+            : 'Game code that selects the old face must be updated.'),
+      });
+    }
     warnings.push(...this.targetCollisions());
     return warnings;
   }
@@ -3191,7 +3378,8 @@ export class BitmapFontExporter {
       `<div class="k">Files</div><div class="v mono">${names.files.map(escapeHtml).join(', ')}</div>` +
       `<div class="k">Registration</div><div class="v">${
         this.formats.registerAfter
-          ? `XML → <span class="mono">src/game/assets.ts</span> as <span class="mono">${escapeHtml(names.assetKey)}</span>`
+          ? `XML → <span class="mono">src/game/assets.ts</span> as <span class="mono">${escapeHtml(names.assetKey)}</span>` +
+            ` <span class="dim">${escapeHtml(this.registrationPlanText(this.registrationPlan(names), names))}</span>`
           : 'not requested'
       }</div>` +
       `</div>`;
@@ -3313,22 +3501,39 @@ export class BitmapFontExporter {
     try {
       result = await native.fontWritePackage(writeOptions);
       if (!result?.ok && result?.conflict?.length && !options.overwrite) {
+        // Conflicts are reported before anything is encoded, so say what is
+        // actually pending while the user decides.
+        $('fontNext').textContent = 'Waiting for confirmation…';
+        $('fontExportResult').innerHTML =
+          '<div class="dim">Waiting for confirmation to replace the existing files…</div>';
+        const plan = this.formats.registerAfter ? this.registrationPlan(names) : null;
+        const count = result.conflict.length;
         const overwrite = this.choiceDialog
           ? await this.choiceDialog({
-              title: 'Overwrite generated files?',
+              title: plan?.entry ? `Update bitmap font "${plan.entry.key}"?` : 'Overwrite existing files?',
               message:
-                `${result.conflict.length} direct file${result.conflict.length === 1 ? ' already exists' : 's already exist'} in the package folder: ` +
-                `${result.conflict.slice(0, 8).join(', ')}${result.conflict.length > 8 ? ', …' : ''}. Other files are untouched.`,
+                (plan?.entry ? `${this.registrationPlanText(plan, names)}\n\n` : '') +
+                `${count} file${count === 1 ? ' already exists' : 's already exist'} in ${outDir} and will be replaced:\n` +
+                `${result.conflict.slice(0, 8).join(', ')}${count > 8 ? ', …' : ''}\n\n` +
+                'Other files in the folder are untouched.',
               buttons: [
                 { label: 'Cancel', value: false },
-                { label: 'Overwrite Generated Files', value: true, primary: true },
+                {
+                  label: plan?.entry ? 'Overwrite and Update' : 'Overwrite Files',
+                  value: true,
+                  primary: true,
+                },
               ],
             })
           : window.confirm('Overwrite the existing generated bitmap-font files?');
         if (!overwrite) {
+          this.renderExportResult();
           this.renderFooter();
           return null;
         }
+        $('fontNext').textContent = 'Encoding & verifying…';
+        $('fontExportResult').innerHTML =
+          '<div class="dim">Encoding lossless textures and verifying the staged package…</div>';
         result = await native.fontWritePackage({ ...writeOptions, overwrite: true });
       }
     } catch (error) {
@@ -3460,17 +3665,22 @@ export class BitmapFontExporter {
         appDir: this.target.appDir,
         key: names.assetKey,
         xmlRel: `fonts/${names.folderName}/${names.xmlFile}`,
+        // The export step already showed and confirmed the update plan.
+        replaceExisting: true,
       });
       if (!result?.ok) {
         throw new Error(result?.error || 'The registration was rejected.');
       }
       const added = asArray(result.added || result.addedEntries);
+      const updated = asArray(result.updatedEntries);
       const already = asArray(result.alreadyRegistered);
       const message = added.length
         ? `Registered "${names.assetKey}" in ${result.file}. Reload the game to load the new bitmap font.`
-        : already.length
-          ? `"${names.assetKey}" was already registered to this exact XML and face.`
-          : `Registration is already up to date in ${result.file}.`;
+        : updated.length
+          ? `Updated "${names.assetKey}" in ${result.file}: ${updated[0].previousXmlRel} → ${updated[0].xmlRel}. Reload the game to load the updated font.`
+          : already.length
+            ? `"${names.assetKey}" already points at this XML, so assets.ts is unchanged. Reload the game to load the updated font files.`
+            : `Registration is already up to date in ${result.file}.`;
       exported.registered = { ok: true, result, message };
       this.toast(message, 'info', 8000);
       try {

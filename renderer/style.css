@@ -576,13 +576,16 @@ input, select { font-family: inherit; color: inherit; }
 }
 
 /* ---------------- Choice dialog ---------------- */
+/* Choice dialogs are opened from inside the workflow roots (#blurRoot,
+   #animRoot, #fontRoot) and the launcher, so they must stack above all of
+   them or they open invisibly underneath and the workflow appears to hang. */
 .choice-overlay {
   position: fixed;
   inset: 0;
   display: grid;
   place-items: center;
   background: rgba(8, 10, 14, 0.6);
-  z-index: 250;
+  z-index: 400;
 }
 .choice-message {
   color: var(--text-dim);

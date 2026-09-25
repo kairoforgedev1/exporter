@@ -925,9 +925,14 @@ function parseAssetsTs(source) {
     if (!/\btype\s*:\s*(['"])font\1/.test(entry.body)) continue;
     const url = /\bsrc\s*:\s*new URL\(\s*(['"])([^'"]+)\1\s*,\s*import\.meta\.url\s*\)\.href/.exec(entry.body);
     if (!url) continue;
+    // Absolute offsets of the quoted path's contents, so an update can
+    // rewrite only that string and leave the rest of the entry untouched.
+    const urlStart = entry.open + url.index + url[0].indexOf(url[1]) + 1;
     fontEntries.push({
       key: entry.key,
       url: url[2],
+      urlStart,
+      urlEnd: urlStart + url[2].length,
       xmlRel: assetRelativePath(url[2]),
     });
   }
@@ -1216,6 +1221,11 @@ function normalizeRegistrationPath(entry, fontsRoot, assetsRoot) {
 /**
  * Append one or more type:'font' XML registrations to src/game/assets.ts.
  * Existing source is preserved byte-for-byte around the inserted block.
+ *
+ * A key that already registers the same XML is reported as already
+ * registered. With `replaceExisting`, a key that registers a different XML
+ * has only its src path rewritten, which is how an existing game font is
+ * updated after its package moves or is renamed.
  */
 function registerFontAsset(options) {
   const appDir = options?.appDir;
@@ -1248,14 +1258,16 @@ function registerFontAsset(options) {
   const pathKey = (value) => process.platform === 'win32' ? value.toLowerCase() : value;
   const existingPaths = new Map(parsed.fontEntries.map((entry) => [pathKey(entry.xmlRel), entry]));
   const existingByKey = new Map(parsed.fontEntries.map((entry) => [entry.key, entry]));
-  const existingFaces = new Map();
-  for (const item of parsed.fontEntries.map((entry) => validateRegisteredFile(assetsRoot, entry))) {
-    if (item.face && !existingFaces.has(item.face)) existingFaces.set(item.face, item);
-  }
+  // Faces are read from the XML currently on disk, so a package that was just
+  // overwritten reports its new face here.
+  const registeredFaces = parsed.fontEntries
+    .map((entry) => validateRegisteredFile(assetsRoot, entry))
+    .filter((item) => item.face);
   const stagedKeys = new Set();
   const stagedPaths = new Set();
   const stagedFaces = new Map();
   const prepared = [];
+  const updates = [];
   const skipped = [];
   const alreadyRegistered = [];
 
@@ -1285,35 +1297,26 @@ function registerFontAsset(options) {
       }
       if (!metadata.face) throw new Error(`Font XML has no <info face> name: ${target.relative}.`);
 
+      const replaceExisting = !!(entry.replaceExisting ?? options.replaceExisting);
       const keyOwner = existingByKey.get(key);
-      if (parsed.keys.has(key)) {
-        if (
-          keyOwner &&
-          pathKey(keyOwner.xmlRel) === pathKey(target.relative) &&
-          existingFaces.get(metadata.face)?.key === key
-        ) {
-          alreadyRegistered.push({
-            key,
-            xmlRel: target.relative,
-            face: metadata.face,
-            verification,
-          });
-          continue;
-        }
-        throw new Error(`Asset key ${JSON.stringify(key)} already exists with a different registration.`);
-      }
-      const pathOwner = existingPaths.get(pathKey(target.relative));
-      if (pathOwner) {
+      if (parsed.keys.has(key) && !keyOwner) {
         throw new Error(
-          `Font XML path ${JSON.stringify(target.relative)} is already registered as ${pathOwner.key}.`
+          `Asset key ${JSON.stringify(key)} is already used by an entry that is not a type: 'font' registration.`
         );
       }
       if (stagedKeys.has(key)) throw new Error(`Duplicate requested font asset key: ${key}.`);
       if (stagedPaths.has(pathKey(target.relative))) {
         throw new Error(`Duplicate requested font XML path: ${target.relative}.`);
       }
-      const faceOwner = existingFaces.get(metadata.face);
-      if (faceOwner && pathKey(faceOwner.xmlRel) !== pathKey(target.relative)) {
+      const pathOwner = existingPaths.get(pathKey(target.relative));
+      if (pathOwner && pathOwner.key !== key) {
+        throw new Error(
+          `Font XML path ${JSON.stringify(target.relative)} is already registered as ${pathOwner.key}.`
+        );
+      }
+      // The entry being updated keeps its key, so only other keys can own the face.
+      const faceOwner = registeredFaces.find((item) => item.face === metadata.face && item.key !== key);
+      if (faceOwner) {
         throw new Error(
           `Bitmap font face ${JSON.stringify(metadata.face)} is already registered by ${faceOwner.key}; ` +
           'Pixi caches bitmap fonts by face name.'
@@ -1325,19 +1328,31 @@ function registerFontAsset(options) {
       stagedKeys.add(key);
       stagedPaths.add(pathKey(target.relative));
       stagedFaces.set(metadata.face, key);
-      prepared.push({
+      const record = {
         key,
         xmlRel: target.relative,
         absolutePath: toPosix(target.absolute),
         face: metadata.face,
         verification,
-      });
+      };
+      if (!keyOwner) {
+        prepared.push(record);
+      } else if (pathKey(keyOwner.xmlRel) === pathKey(target.relative)) {
+        alreadyRegistered.push(record);
+      } else if (replaceExisting) {
+        updates.push({ ...record, previousXmlRel: keyOwner.xmlRel, owner: keyOwner });
+      } else {
+        throw new Error(
+          `Asset key ${JSON.stringify(key)} already exists with a different registration (${keyOwner.xmlRel}).`
+        );
+      }
     }
   } catch (error) {
     return {
       ok: false,
       error: error.message,
       added: [],
+      updated: [],
       skipped,
       alreadyRegistered,
       verification: error.fontVerification || null,
@@ -1345,34 +1360,46 @@ function registerFontAsset(options) {
   }
 
   let backup = null;
-  if (prepared.length) {
-    const eol = source.includes('\r\n') ? '\r\n' : '\n';
-    let block =
-      `\t// Registered by Exporter - Bitmap Font (${new Date().toISOString().slice(0, 10)})${eol}`;
-    for (const entry of prepared) {
-      block +=
-        `\t${entry.key}: {${eol}` +
-        `\t\ttype: 'font',${eol}` +
-        `\t\tsrc: new URL('../../assets/${entry.xmlRel}', import.meta.url).href,${eol}` +
-        `\t},${eol}`;
-    }
-    let insertAt = parsed.anchor + 1;
-    if (source[insertAt] === '\r') insertAt++;
-    if (source[insertAt] === '\n') insertAt++;
+  if (prepared.length || updates.length) {
     backup = `${assetsTsPath}.ae-backup`;
     if (!fs.existsSync(backup)) fs.copyFileSync(assetsTsPath, backup);
-    source = source.slice(0, insertAt) + block + source.slice(insertAt);
+    // Repoint updated entries from the end of the file backwards so earlier
+    // offsets, including the insertion anchor, stay valid. Only the quoted
+    // path changes; the entry's key, formatting and other fields are kept.
+    for (const update of [...updates].sort((a, b) => b.owner.urlStart - a.owner.urlStart)) {
+      const { url, urlStart, urlEnd, xmlRel } = update.owner;
+      const prefix = url.endsWith(xmlRel) ? url.slice(0, url.length - xmlRel.length) : '../../assets/';
+      source = source.slice(0, urlStart) + prefix + update.xmlRel + source.slice(urlEnd);
+    }
+    if (prepared.length) {
+      const eol = source.includes('\r\n') ? '\r\n' : '\n';
+      let block =
+        `\t// Registered by Exporter - Bitmap Font (${new Date().toISOString().slice(0, 10)})${eol}`;
+      for (const entry of prepared) {
+        block +=
+          `\t${entry.key}: {${eol}` +
+          `\t\ttype: 'font',${eol}` +
+          `\t\tsrc: new URL('../../assets/${entry.xmlRel}', import.meta.url).href,${eol}` +
+          `\t},${eol}`;
+      }
+      let insertAt = parsed.anchor + 1;
+      if (source[insertAt] === '\r') insertAt++;
+      if (source[insertAt] === '\n') insertAt++;
+      source = source.slice(0, insertAt) + block + source.slice(insertAt);
+    }
     fs.writeFileSync(assetsTsPath, source, 'utf8');
   }
 
   const after = parseAssetsTs(readIfExists(assetsTsPath) || '');
-  const verification = [...alreadyRegistered, ...prepared].map((entry) => ({
+  const verification = [...alreadyRegistered, ...updates, ...prepared].map((entry) => ({
       key: entry.key,
       xmlRel: entry.xmlRel,
       face: entry.face,
       alreadyRegistered: alreadyRegistered.includes(entry),
+      updated: updates.includes(entry),
+      previousXmlRel: entry.previousXmlRel || null,
       manifestEntryPresent: after.fontEntries.some(
-        (candidate) => candidate.key === entry.key && candidate.xmlRel === entry.xmlRel
+        (candidate) => candidate.key === entry.key && pathKey(candidate.xmlRel) === pathKey(entry.xmlRel)
       ),
       metadataAndPagesValid: entry.verification.ok,
       details: entry.verification,
@@ -1381,11 +1408,13 @@ function registerFontAsset(options) {
     ok: verification.every((item) => item.manifestEntryPresent && item.metadataAndPagesValid),
     added: prepared.map((entry) => entry.key),
     addedEntries: prepared,
+    updated: updates.map((entry) => entry.key),
+    updatedEntries: updates.map(({ owner, ...entry }) => entry),
     skipped,
     alreadyRegistered,
     file: toPosix(assetsTsPath),
     backup: backup ? toPosix(backup) : null,
-    reloadRequired: prepared.length > 0,
+    reloadRequired: prepared.length > 0 || updates.length > 0,
     verification,
   };
 }

@@ -104,8 +104,17 @@ Spine Animation.
 - **Current SDK registration** - when a Stake Engine app is selected, the
   exporter inspects its real `src/game/assets.ts` and
   `static/assets/fonts/` conventions. A verified XML font can be registered
-  there with a one-time backup. Unsafe asset keys, duplicate keys, duplicate
-  runtime faces and path conflicts are refused.
+  there with a one-time backup.
+- **Updating a font already in the game** - choose it under **Update
+  registered font**, or just open its package (or loose glyphs with the same
+  runtime face) and select the project: the exporter matches the registered
+  entry and reuses its asset key, folder, file base, face and page format.
+  Exporting then overwrites that package after one confirmation that lists
+  the replaced files. `assets.ts` is left unchanged when the XML path is the
+  same. If you keep the key but change the folder or file base, only that
+  entry's `src` path is rewritten. Renaming the face warns about `fontFamily`
+  references to the old face. Asset keys used by non-font assets, and XML
+  paths or runtime faces owned by a *different* font key, are still refused.
 
 The current Web SDK is the source of truth: Pixi loads the XML and its relative
 PNG/WebP page, and the XML `<info face>` is the family used by `BitmapText`.

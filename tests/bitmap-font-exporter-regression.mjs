@@ -1023,3 +1023,111 @@ sampleFontTest('native font workspace scans references and registers only verifi
     rmSync(tempRoot, { recursive: true, force: true });
   }
 });
+
+test('registering an existing font key updates it instead of refusing it', () => {
+  const tempRoot = mkdtempSync(join(tmpdir(), 'atlas-font-update-test-'));
+  try {
+    const appDir = join(tempRoot, 'apps', 'game');
+    const manifest = join(appDir, 'src', 'game', 'assets.ts');
+    const fontsRoot = join(appDir, 'static', 'assets', 'fonts');
+    mkdirSync(dirname(manifest), { recursive: true });
+    writeWorkspaceFont(join(fontsRoot, 'goldFont'), 'gold_font', 'gold');
+    // A hand-written CRLF manifest whose font key does not match its folder.
+    const original = [
+      'export default {',
+      '\tbackground: {',
+      "\t\ttype: 'sprites',",
+      "\t\tsrc: new URL('../../assets/sprites/bg/bg.json', import.meta.url).href,",
+      '\t},',
+      '\tmmGold: {',
+      "\t\ttype: 'font',",
+      "\t\tsrc: new URL('../../assets/fonts/goldFont/gold_font.xml', import.meta.url).href,",
+      '\t\tpreload: true,',
+      '\t},',
+      '};',
+      '',
+    ].join('\r\n');
+    writeFileSync(manifest, original, 'utf8');
+
+    // Overwriting the package in place (here with a renamed face) needs no
+    // manifest change, even without replaceExisting.
+    writeWorkspaceFont(join(fontsRoot, 'goldFont'), 'gold_font', 'goldNew');
+    const inPlace = fontWorkspace.registerFontAsset({
+      appDir,
+      key: 'mmGold',
+      xmlRel: 'fonts/goldFont/gold_font.xml',
+    });
+    assert.equal(inPlace.ok, true, inPlace.error);
+    assert.deepEqual(inPlace.added, []);
+    assert.deepEqual(inPlace.updated, []);
+    assert.equal(inPlace.alreadyRegistered.length, 1);
+    assert.equal(readFileSync(manifest, 'utf8'), original);
+
+    const nonFontKey = fontWorkspace.registerFontAsset({
+      appDir,
+      key: 'background',
+      xmlRel: 'fonts/goldFont/gold_font.xml',
+      replaceExisting: true,
+    });
+    assert.equal(nonFontKey.ok, false);
+    assert.match(nonFontKey.error, /not a type: 'font'/);
+
+    const otherKeySamePath = fontWorkspace.registerFontAsset({
+      appDir,
+      key: 'goldFont',
+      xmlRel: 'fonts/goldFont/gold_font.xml',
+      replaceExisting: true,
+    });
+    assert.equal(otherKeySamePath.ok, false);
+    assert.match(otherKeySamePath.error, /already registered as mmGold/);
+
+    writeWorkspaceFont(join(fontsRoot, 'goldFontV2'), 'gold_v2', 'goldNew');
+    const withoutOptIn = fontWorkspace.registerFontAsset({
+      appDir,
+      key: 'mmGold',
+      xmlRel: 'fonts/goldFontV2/gold_v2.xml',
+    });
+    assert.equal(withoutOptIn.ok, false);
+    assert.match(withoutOptIn.error, /key.*already exists/i);
+    assert.equal(readFileSync(manifest, 'utf8'), original);
+
+    // The face is owned by mmGold itself, which is the entry being updated.
+    const repointed = fontWorkspace.registerFontAsset({
+      appDir,
+      key: 'mmGold',
+      xmlRel: 'fonts/goldFontV2/gold_v2.xml',
+      replaceExisting: true,
+    });
+    assert.equal(repointed.ok, true, repointed.error);
+    assert.deepEqual(repointed.added, []);
+    assert.deepEqual(repointed.updated, ['mmGold']);
+    assert.equal(repointed.updatedEntries[0].previousXmlRel, 'fonts/goldFont/gold_font.xml');
+    assert.equal(repointed.reloadRequired, true);
+    assert.ok(repointed.backup);
+    assert.equal(readFileSync(repointed.backup, 'utf8'), original);
+    const updatedSource = readFileSync(manifest, 'utf8');
+    assert.equal(
+      updatedSource,
+      original.replace('fonts/goldFont/gold_font.xml', 'fonts/goldFontV2/gold_v2.xml')
+    );
+    assert.equal(updatedSource.match(/\bmmGold\s*:/g).length, 1);
+
+    writeWorkspaceFont(join(fontsRoot, 'otherFont'), 'other_font', 'goldNew');
+    const faceOwnedElsewhere = fontWorkspace.registerFontAsset({
+      appDir,
+      key: 'otherFont',
+      xmlRel: 'fonts/otherFont/other_font.xml',
+      replaceExisting: true,
+    });
+    assert.equal(faceOwnedElsewhere.ok, false);
+    assert.match(faceOwnedElsewhere.error, /face.*already registered by mmGold/i);
+
+    const app = fontWorkspace.inspectApp(appDir);
+    assert.equal(app.registeredFonts.length, 1);
+    assert.equal(app.registeredFonts[0].key, 'mmGold');
+    assert.equal(app.registeredFonts[0].xmlRel, 'fonts/goldFontV2/gold_v2.xml');
+    assert.equal(app.registeredFonts[0].verification.ok, true);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
