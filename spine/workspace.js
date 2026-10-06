@@ -200,6 +200,26 @@ function isSpineSourceFile(file) {
 }
 
 /**
+ * The atlas a skeleton belongs to, among the atlases in its own folder: exact
+ * base name, then the longest `<atlas>_`/`<atlas>-` prefix, then the folder's
+ * only atlas. Names compare case-insensitively, since animators mix
+ * `Scatter2_rare_mega.json` and `scatter2.atlas` in one delivery.
+ */
+function atlasForSkeleton(skeletonFile, atlasesHere) {
+  const nameKey = (file) => path.basename(file, path.extname(file)).toLowerCase();
+  const name = nameKey(skeletonFile);
+  let best = null;
+  for (const atlasFile of atlasesHere) {
+    const base = nameKey(atlasFile);
+    if (name === base) return atlasFile;
+    const prefixed = name.startsWith(`${base}_`) || name.startsWith(`${base}-`);
+    if (prefixed && (!best || base.length > nameKey(best).length)) best = atlasFile;
+  }
+  if (best) return best;
+  return atlasesHere.length === 1 ? atlasesHere[0] : null;
+}
+
+/**
  * Group the files of an animator delivery into spine packages.
  *
  * A package is one `.atlas` plus every skeleton JSON that belongs to it and
@@ -207,12 +227,16 @@ function isSpineSourceFile(file) {
  * skeletons (e.g. mobile/desktop variants of one feature sharing one atlas)
  * and may declare SEVERAL texture pages.
  *
- * Skeletons are attributed to an atlas by name, most specific first:
- *   1. exact base-name match      lp1.json      <- lp1.atlas
- *   2. prefix match               fs_meter_*.json <- fs_meter.atlas
- *   3. sole atlas in the folder   anything.json <- the only .atlas there
+ * Skeletons are attributed per skeleton by atlasForSkeleton(), most specific
+ * first:
+ *   1. exact base-name match      lp1.json        <- lp1.atlas
+ *   2. longest prefix match       fs_meter_*.json <- fs_meter.atlas
+ *   3. sole atlas in the folder   anything.json   <- the only .atlas there
  * so a folder of independent one-to-one packages and a folder holding one
- * shared multi-skeleton package both resolve correctly.
+ * shared multi-skeleton package both resolve correctly. Choosing per skeleton
+ * means a broader prefix (bigwin.atlas) never takes a skeleton that has its
+ * own exact atlas (bigwin_intro.atlas), and one skeleton matching by name
+ * never stops the folder's only atlas from owning its siblings.
  */
 async function scanAnimationSource(rootDir) {
   const files = await walk(rootDir);
@@ -264,25 +288,12 @@ async function scanAnimationSource(rootDir) {
       };
     });
 
-    const siblings = skeletonFiles.filter((f) => path.dirname(f) === dir);
     const atlasesHere = atlasFiles.filter((f) => path.dirname(f) === dir);
-
-    const exact = siblings.filter((f) => path.basename(f, '.json') === base);
-    const prefixed = siblings.filter((f) => {
-      const name = path.basename(f, '.json');
-      return name !== base && (name.startsWith(`${base}_`) || name.startsWith(`${base}-`));
-    });
-
-    let attributed;
-    if (exact.length || prefixed.length) {
-      attributed = [...exact, ...prefixed];
-    } else if (atlasesHere.length === 1) {
-      // A single atlas in the folder owns every skeleton beside it.
-      attributed = siblings;
-    } else {
-      attributed = [];
-    }
-    attributed = attributed.filter((f) => !claimed.has(f));
+    const isExact = (f) => path.basename(f, '.json').toLowerCase() === base.toLowerCase();
+    // The exact-name skeleton (if any) stays first, as the package's primary.
+    const attributed = skeletonFiles
+      .filter((f) => path.dirname(f) === dir && atlasForSkeleton(f, atlasesHere) === atlasFile)
+      .sort((a, b) => isExact(b) - isExact(a));
     for (const f of attributed) claimed.add(f);
 
     packages.push({

@@ -1,6 +1,15 @@
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
+import { createRequire } from 'node:module';
+import { tmpdir } from 'node:os';
+import { basename, dirname, join } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
@@ -1137,5 +1146,47 @@ test('both naming links start on and shape the first build of a mapping', async 
   } finally {
     if (previousWindow === undefined) delete globalThis.window;
     else globalThis.window = previousWindow;
+  }
+});
+
+test('skeletons attach to their atlas regardless of name case or a broader prefix atlas', async () => {
+  const require = createRequire(import.meta.url);
+  const { scanAnimationSource } = require('../spine/workspace.js');
+  const tempRoot = mkdtempSync(join(tmpdir(), 'atlas-spine-scan-test-'));
+  const writeFiles = (dir, atlases, skeletons) => {
+    mkdirSync(dir, { recursive: true });
+    for (const atlas of atlases) {
+      writeFileSync(join(dir, `${atlas}.atlas`), `${atlas}.webp\nsize:2,2\nfilter:Linear,Linear\npma:true\nregion\nbounds:0,0,2,2\n`);
+      writeFileSync(join(dir, `${atlas}.webp`), '');
+    }
+    for (const skeleton of skeletons) {
+      writeFileSync(
+        join(dir, `${skeleton}.json`),
+        JSON.stringify({ skeleton: { spine: '4.2.43' }, bones: [{ name: 'root' }], animations: {} })
+      );
+    }
+  };
+  const owners = (scan) => Object.fromEntries(
+    scan.packages.map((pkg) => [pkg.name, pkg.skeletonPaths.map((file) => basename(file, '.json'))])
+  );
+  try {
+    // The reported delivery: one skeleton matches the atlas prefix only in a
+    // different case, so it must still fall back to the folder's sole atlas.
+    writeFiles(join(tempRoot, 'cube', '2'), ['scatter2'], ['scatter2_rare', 'Scatter2_rare_mega']);
+    const cube = await scanAnimationSource(join(tempRoot, 'cube', '2'));
+    assert.deepEqual(owners(cube), { scatter2: ['scatter2_rare', 'Scatter2_rare_mega'] });
+    assert.deepEqual(cube.looseJson, []);
+
+    // With several atlases, an exact atlas wins over a broader prefix atlas,
+    // and the exact-name skeleton stays first in its package.
+    writeFiles(join(tempRoot, 'bigwin'), ['bigwin', 'bigwin_intro'], ['bigwin_intro', 'BigWin_outro', 'bigwin', 'stray']);
+    const bigwin = await scanAnimationSource(join(tempRoot, 'bigwin'));
+    assert.deepEqual(owners(bigwin), {
+      bigwin: ['bigwin', 'BigWin_outro'],
+      bigwin_intro: ['bigwin_intro'],
+    });
+    assert.deepEqual(bigwin.looseJson.map((file) => basename(file, '.json')), ['stray']);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
   }
 });
